@@ -1,6 +1,14 @@
 -- breakout development exercise
 -- https://nybbles.io
 
+function intersects(hb1, hb2)
+    local ax2 = hb1.x + hb1.w
+    local ay2 = hb1.y + hb1.h
+    local bx2 = hb2.x + hb2.w
+    local by2 = hb2.y + hb2.h
+    return hb1.x < bx2 and ax2 > hb2.x and hb1.y < by2 and ay2 > hb1.y
+end
+
 timers = {
   update = function(self)
     for _, t in ipairs(self) do
@@ -54,6 +62,53 @@ level = {
     active_background = nil,
     
     pieces = {
+        new_piece = function(self, type, x, y, image)
+            local piece = {
+                type = type,
+                
+                x = x,
+                
+                y = y,
+                              
+                state = "solid",
+                
+                image = image,
+                
+                hit_box = function(p)
+                    return {x = p.x + 42, y = p.y + 52, w = 69, h = 32}
+                end,
+            
+                update = function(p, dt)
+                    for _, ball in ipairs(level.balls) do
+                        if intersects(ball:hit_box_piece(), p:hit_box()) then
+                            if p.state == "solid" then
+                                ball:bounce()
+                                p.state = "cracked"
+                            elseif p.state == "cracked" then
+                                ball:bounce()
+                                level.player.score = level.player.score + 100
+                                p.state = "destroyed"
+                            end
+                        end
+                            
+                    end
+                end,
+            
+                draw = function(p)
+                    if p.state == "solid" then
+                        love.graphics.draw(p.image.default, p.x, p.y, 0, .3, .3)
+                    elseif p.state == "cracked" then
+                        love.graphics.draw(p.image.cracked, p.x, p.y, 0, .3, .3)                     
+                        love.graphics.draw(particle_system, p.x, p.y)
+                    end
+
+                    --local hb = p:hit_box()
+                    --love.graphics.rectangle('line', hb.x, hb.y, hb.w, hb.h)
+                end,
+            }
+            table.insert(self, piece)
+            return piece
+        end,
     },
     
     balls = {
@@ -61,8 +116,8 @@ level = {
             for _, ball in ipairs(level.balls) do
                 if ball.state == "attached" then
                     ball.state = "active"
-                    ball.dx = 300
-                    ball.dy = -300
+                    ball.dx = love.math.random(385, 690)
+                    ball.dy = -love.math.random(400, 725)
                 end
             end
         end,
@@ -80,6 +135,20 @@ level = {
                 state = "attached",
                 
                 image = image,
+                
+                hit_box_bat = function(b)
+                    return {x = b.x + 5, y = b.y + 28, w = 22, h = 2}
+                end,
+            
+                hit_box_piece = function(b)
+                    return {x = b.x + 12, y = b.y + 15, w = 6, h = 2}
+                end,
+            
+                bounce = function(b)
+                    -- xxx: need to vary velocity and direction
+                    b.dx = -(b.dx + love.math.random(-125, 125))
+                    b.dy = -(b.dy + love.math.random(-75, 75))
+                end,
                 
                 update = function(b, dt)
                     if b.state == "lost" then
@@ -102,12 +171,33 @@ level = {
                         
                         if b.y > 960 then
                             b.state = "lost"
-                        end        
+                            
+                            level.player.paddles = level.player.paddles - 1
+                            
+                            -- xxx: this is temporary
+                            b.x = level.player.x
+                            b.y = level.player.y
+                            b.dx = 0
+                            b.dy = 0
+                            b.state = "attached"
+                        end
                     end
+                    
+                    local bhb = b:hit_box_bat()
+                    local phb = level.player:hit_box()
+                    if intersects(phb, bhb) then
+                        b:bounce()
+                    end 
                 end,
            
                 draw = function(b, dt)
-                    love.graphics.draw(b.image, b.x, b.y, 0, .08, .08)
+                    love.graphics.draw(b.image, b.x, b.y, 0, .06, .06)
+                    
+                    local hbb = b:hit_box_bat()
+                    love.graphics.rectangle('line', hbb.x, hbb.y, hbb.w, hbb.h)
+                    
+                    local hbp = b:hit_box_piece()
+                    love.graphics.rectangle('line', hbp.x, hbp.y, hbp.w, hbp.h)
                 end,
             }
             table.insert(self, ball)
@@ -116,12 +206,20 @@ level = {
     },
     
     player = {
+        score = 0,
+        
+        paddles = 3,
+        
         x = love.graphics.getWidth() / 2,
         
         y = love.graphics.getHeight() - 100,
         
         active_bat = nil,
         
+        hit_box = function(self)
+            return {x = self.x + 9, y = self.y + 55, w = 139, h = 30}
+        end,
+    
         update = function(self, dt)
             self.x = love.mouse.getX()
             
@@ -134,6 +232,8 @@ level = {
 
         draw = function(self)
             love.graphics.draw(self.active_bat, self.x, self.y, 0, .3, .3)
+            local hb = self:hit_box()
+            love.graphics.rectangle('line', hb.x, hb.y, hb.w, hb.h)
         end
     },
 
@@ -158,6 +258,9 @@ level = {
             ball:draw()
         end
         self.player:draw()
+        
+        love.graphics.print(string.format("SCORE %05d", self.player.score), 20, 20)
+        love.graphics.print(string.format("PADDLES %02d", self.player.paddles), love.graphics.getWidth() - 175, 20)
     end,
 }
 
@@ -227,14 +330,33 @@ function love.load()
         yellow = love.graphics.newImage("assets/bats/bat_yellow.png")
     }
     
+    game_font = love.graphics.newFont("assets/Tapper.ttf", 14)
+    love.graphics.setFont(game_font)
+    
+    local smoke_image = love.graphics.newImage("assets/smoke.png")
+    
+    particle_system = love.graphics.newParticleSystem(smoke_image, 32)
+    particle_system:setParticleLifetime(2, 5)
+    particle_system:setEmissionRate(5)
+    particle_system:setSizeVariation(1)
+    particle_system:setLinearAcceleration(-20, -20, 20, 20)
+    particle_system:setColors(255, 255, 255, 255, 255, 255, 255, 0)
+    
     level.active_background = background
     level.player.active_bat = bats.black
     
     -- this is temporary
     level.balls:new_ball(level.player.x, level.player.y, 0, 0, balls.silver)
+    
+    for y = 1, 10 * 38, 38 do
+        for x = 1, 12 * 78, 78 do
+            level.pieces:new_piece('brick', x, y, bricks.blue)
+        end
+    end
 end
 
 function love.update(dt)
+    particle_system:update(dt)
     timers:update()
     level:update(dt)
 end
