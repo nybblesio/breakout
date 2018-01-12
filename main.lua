@@ -49,17 +49,80 @@ timers = {
   end
 }
 
-level = {    
-    pieces = {},
+-- xxx: need to implement a floor/min for dt based adjustments
+level = { 
+    active_background = nil,
+    
+    pieces = {
+    },
+    
+    balls = {
+        launch_if_attached = function(self)
+            for _, ball in ipairs(level.balls) do
+                if ball.state == "attached" then
+                    ball.state = "active"
+                    ball.dx = 300
+                    ball.dy = -300
+                end
+            end
+        end,
+    
+        new_ball = function(self, x, y, dx, dy, image)
+            local ball = {
+                x = x,
+                
+                y = y,
+                
+                dx = dx,
+                
+                dy = dy,
+                
+                state = "attached",
+                
+                image = image,
+                
+                update = function(b, dt)
+                    if b.state == "lost" then
+                        return
+                    elseif b.state == "attached" then
+                        b.x = level.player.x + 55
+                        b.y = level.player.y + 20
+                    else
+                        b.x = b.x + (b.dx * dt)
+                    
+                        if b.x < 5 or b.x > 980 then
+                            b.dx = -b.dx
+                        end
+                        
+                        b.y = b.y + (b.dy * dt)
+                        
+                        if b.y < 5 then
+                            b.dy = -b.dy
+                        end
+                        
+                        if b.y > 960 then
+                            b.state = "lost"
+                        end        
+                    end
+                end,
+           
+                draw = function(b, dt)
+                    love.graphics.draw(b.image, b.x, b.y, 0, .08, .08)
+                end,
+            }
+            table.insert(self, ball)
+            return ball
+        end,
+    },
     
     player = {
-        x = 480,
+        x = love.graphics.getWidth() / 2,
         
-        y = 850,
+        y = love.graphics.getHeight() - 100,
         
         active_bat = nil,
         
-        update = function(self)
+        update = function(self, dt)
             self.x = love.mouse.getX()
             
             if self.x < 10 then
@@ -74,17 +137,25 @@ level = {
         end
     },
 
-    update = function(self)
+    update = function(self, dt)
+        self.player:update(dt)
         for _, piece in ipairs(self.pieces) do
-            piece:update()
+            piece:update(dt)
         end
-        self.player:update()
+        for _, ball in ipairs(self.balls) do
+            ball:update(dt)
+        end
     end,
 
     draw = function(self)
-        love.graphics.draw(background, 0, 0)  
+        if self.active_background ~= nil then
+            love.graphics.draw(self.active_background, 0, 0)  
+        end    
         for _, piece in ipairs(self.pieces) do
             piece:draw()
+        end
+        for _, ball in ipairs(self.balls) do
+            ball:draw()
         end
         self.player:draw()
     end,
@@ -92,6 +163,10 @@ level = {
 
 -- love2d framework callbacks
 function love.load()
+    if arg[#arg] == "-debug" then 
+        require("mobdebug").start() 
+    end  
+
     background = love.graphics.newImage("assets/backgrounds/background.jpg")
     
     wall_pieces = {
@@ -152,12 +227,16 @@ function love.load()
         yellow = love.graphics.newImage("assets/bats/bat_yellow.png")
     }
     
+    level.active_background = background
     level.player.active_bat = bats.black
+    
+    -- this is temporary
+    level.balls:new_ball(level.player.x, level.player.y, 0, 0, balls.silver)
 end
 
 function love.update(dt)
     timers:update()
-    level:update()
+    level:update(dt)
 end
 
 function love.draw()
@@ -166,9 +245,9 @@ end
 
 -- user input callbacks
 function love.mousepressed(x, y, button, istouch)
-end
-
-function love.mousereleased(x, y, button, istouch)
+    if button == 1 then
+        level.balls:launch_if_attached()
+    end
 end
 
 function love.keypressed(key)
